@@ -6,6 +6,7 @@ import lombok.Data;
 import java.util.List;
 @Data
 public class CombineResult {
+    private ReleaseWebhookDto input;
     private Eim eim;
     private Component component;
     private Environment environment;

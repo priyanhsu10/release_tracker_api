@@ -5,8 +5,10 @@ import com.pro.release_tracker_api.dtos.ReleaseWebhookDto;
 import com.pro.release_tracker_api.entities.*;
 import com.pro.release_tracker_api.repositories.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,8 +25,8 @@ public class ReleaseService {
     private final ServerRepository serverRepository;
     private final ServerDeploymentRepository serverDeploymentRepository;
 
-
-    public Mono<Void> createRelease(Mono<ReleaseWebhookDto> input) {
+    @Modifying
+    public Mono<Void> createRelease(ReleaseWebhookDto input) {
 
 
         //    Check if EIM exists by name — create if not.
@@ -40,67 +42,70 @@ public class ReleaseService {
 // doto://    Optionally pull Jira ticket details using Jira API.
 //    Optionally pull Jira ticket summary/status using Jira API.
 
-        return input.map(x -> eimRepository.findById(x.getEIMId())
-                        .switchIfEmpty(eimRepository.save(new Eim(x.getEIMId(), x.getEimName(), x.getEimName())))
-                        .flatMap(eim -> {
+        return Mono.just(input).
+                flatMap(x -> eimRepository.findByEimNumber(x.getEIMId())
+                        .switchIfEmpty(eimRepository.save(new Eim(0, x.getEIMId(), x.getEimName(), x.getEimName()))))
 
-                            CombineResult combineResult = new CombineResult();
-                            combineResult.setEim(eim);
+                .flatMap(eim -> {
+
+
+                    CombineResult combineResult = new CombineResult();
+                    combineResult.setEim(eim);
+                    return Mono.just(combineResult);
+                })
+                .log()
+                .flatMap(combineResult -> componentRepository.findByNameAndEimId(input.getComponentName(), combineResult.getEim().getId())
+                        .switchIfEmpty(componentRepository.save(new Component(0, input.getComponentName(), input.getComponentName(), combineResult.getEim().getId()))
+                        )
+                        .flatMap(component -> {
+                            ;
+                            combineResult.setComponent(component);
                             return Mono.just(combineResult);
-                        })
-                        .log()
-                        .flatMap(combineResult -> componentRepository.findByNameAndEimId(x.getComponentName(), combineResult.getEim().getId())
-                                .switchIfEmpty(componentRepository.save(new Component(0, x.getComponentName(), x.getComponentName(), x.getEIMId()))
-                                )
-                                .flatMap(component -> {
-                                    ;
-                                    combineResult.setComponent(component);
-                                    return Mono.just(combineResult);
-                                })
+                        }))
 
-                        )
-                        .log()
-                        .flatMap(combineResult -> environmentRepository.findByNameAndComponentId(x.getEnvironmentName(), combineResult.getComponent().getId())
-                                .switchIfEmpty(environmentRepository.save(new Environment(0, x.getEnvironmentName(), combineResult.getComponent().getId())))
-                                .flatMap(environment -> {
-                                    combineResult.setEnvironment(environment);
-                                    return Mono.just(combineResult);
-                                })
-                        )
-                        .log()
-                        .flatMap(combineResult -> serverRepository.findByNameAndEnvironmentId(combineResult.getEnvironment().getId())
-                                .flatMap(server -> {
-
-
-                                    saveServers(x, combineResult, server);
-
-
-                                    return Mono.just(combineResult);
-
-
-                                })
-                        )
-                        .log()
-                        .map(combineResult -> {
+                .log()
+                .flatMap(combineResult -> environmentRepository.findByNameAndComponentId(input.getEnvironmentName(), combineResult.getComponent().getId())
+                        .switchIfEmpty(environmentRepository.save(new Environment(0, input.getEnvironmentName(), combineResult.getComponent().getId())))
+                        .flatMap(environment -> {
+                            combineResult.setEnvironment(environment);
+                            return Mono.just(combineResult);
+                        }))
+                .log()
+                .publishOn(Schedulers.boundedElastic())
+//                .flatMap(combineResult -> serverRepository.findByEnvironmentId(combineResult.getEnvironment().getId())
+//                        .switchIfEmpty(  saveServers(input, combineResult, server);)
+//
+//                        .flatMap(server -> {
+//
+//
+//
+//
+//
+//                            return Mono.just(combineResult);
+//
+//
+//                        }))
+                .map
+                        (combineResult -> {
                             // Create Release entry
                             var release = new Release();
                             release.setEnvironmentId(combineResult.getEnvironment().getId());
-                            release.setArtifactVersion(x.getArtifactVersion());
-                            release.setArtifactUrl(x.getArtifactUrl());
+                            release.setArtifactVersion(input.getArtifactVersion());
+                            release.setArtifactUrl(input.getArtifactUrl());
                             release.setComponentId(combineResult.getComponent().getId());
-                            release.setBranchUrl(x.getBranchUrl());
-                            release.setJiraTicketId(x.getJiraTicket());
-                            release.setChgNumber(x.getChgNumber());
-                            release.setVultureUrl(x.getVultureUrl());
-                            release.setPsid(x.getPsid());
-                            release.setReleaseNotes(x.getReleaseNotes());
+                            release.setBranchUrl(input.getBranchUrl());
+                            release.setJiraTicketId(input.getJiraTicket());
+                            release.setChgNumber(input.getChgNumber());
+                            release.setVultureUrl(input.getVultureUrl());
+                            release.setPsid(input.getPsid());
+                            release.setReleaseNotes(input.getReleaseNotes());
+                            release.setEimId(combineResult.getEim().getId());
 
 
-                            return releaseRepository.save(release);
+                            return releaseRepository.save(release).subscribe();
 
-                        })).
+                        }).then();
 
-                then();
     }
 
     private void saveServers(ReleaseWebhookDto x, CombineResult combineResult2, List<Server> server) {

@@ -30,5 +30,6 @@ public class Release {
     private String branchUrl;
     private LocalDateTime CreatedAt;
     private String buildNumber;
+    private long eimId; // Foreign key to Eims table
 
 }

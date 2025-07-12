@@ -7,7 +7,7 @@ import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 
-@Table("tlb_components")
+@Table("tbl_components")
 @Setter
 @Getter
 @AllArgsConstructor
@@ -17,5 +17,5 @@ import org.springframework.data.relational.core.mapping.Table;
     private long id;
     private String name;
     private String description;
-    private long eimsId; // Foreign key to Eims table
+    private long eimId; // Foreign key to Eims table
 }
